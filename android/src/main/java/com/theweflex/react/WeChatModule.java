@@ -3,11 +3,12 @@ package com.theweflex.react;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
-import android.support.annotation.Nullable;
+
+import androidx.annotation.Nullable;
 
 import com.facebook.common.executors.UiThreadImmediateExecutorService;
-import com.facebook.common.internal.Files;
 import com.facebook.common.references.CloseableReference;
 import com.facebook.common.util.UriUtil;
 import com.facebook.datasource.DataSource;
@@ -43,8 +44,7 @@ import com.tencent.mm.sdk.openapi.IWXAPI;
 import com.tencent.mm.sdk.openapi.IWXAPIEventHandler;
 import com.tencent.mm.sdk.openapi.WXAPIFactory;
 
-import java.io.File;
-import java.net.URI;
+import java.io.FileNotFoundException;
 import java.util.ArrayList;
 import java.util.UUID;
 
@@ -240,37 +240,46 @@ public class WeChatModule extends ReactContextBaseJavaModule implements IWXAPIEv
     }
 
     private void _getImage(Uri uri, ResizeOptions resizeOptions, final ImageCallback imageCallback) {
-        BaseBitmapDataSubscriber dataSubscriber = new BaseBitmapDataSubscriber() {
-            @Override
-            protected void onNewResultImpl(Bitmap bitmap) {
-                if (bitmap != null) {
-                    if (bitmap.getConfig() != null) {
-                        bitmap = bitmap.copy(bitmap.getConfig(), true);
-                        imageCallback.invoke(bitmap);
-                    } else {
-                        bitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true);
-                        imageCallback.invoke(bitmap);
-                    }
-                } else {
-                    imageCallback.invoke(null);
-                }
-            }
-
-            @Override
-            protected void onFailureImpl(DataSource<CloseableReference<CloseableImage>> dataSource) {
+        if (resizeOptions == null && "file".equalsIgnoreCase(uri.getScheme())) {
+            try {
+                Bitmap bitmap = BitmapFactory.decodeStream(getReactApplicationContext().getContentResolver().openInputStream(uri));
+                imageCallback.invoke(bitmap);
+            } catch (FileNotFoundException e) {
                 imageCallback.invoke(null);
             }
-        };
+        } else {
+            BaseBitmapDataSubscriber dataSubscriber = new BaseBitmapDataSubscriber() {
+                @Override
+                protected void onNewResultImpl(Bitmap bitmap) {
+                    if (bitmap != null) {
+                        if (bitmap.getConfig() != null) {
+                            bitmap = bitmap.copy(bitmap.getConfig(), true);
+                            imageCallback.invoke(bitmap);
+                        } else {
+                            bitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true);
+                            imageCallback.invoke(bitmap);
+                        }
+                    } else {
+                        imageCallback.invoke(null);
+                    }
+                }
 
-        ImageRequestBuilder builder = ImageRequestBuilder.newBuilderWithSource(uri);
-        if (resizeOptions != null) {
-            builder = builder.setResizeOptions(resizeOptions);
+                @Override
+                protected void onFailureImpl(DataSource<CloseableReference<CloseableImage>> dataSource) {
+                    imageCallback.invoke(null);
+                }
+            };
+
+            ImageRequestBuilder builder = ImageRequestBuilder.newBuilderWithSource(uri);
+            if (resizeOptions != null) {
+                builder = builder.setResizeOptions(resizeOptions);
+            }
+            ImageRequest imageRequest = builder.build();
+
+            ImagePipeline imagePipeline = Fresco.getImagePipeline();
+            DataSource<CloseableReference<CloseableImage>> dataSource = imagePipeline.fetchDecodedImage(imageRequest, null);
+            dataSource.subscribe(dataSubscriber, UiThreadImmediateExecutorService.getInstance());
         }
-        ImageRequest imageRequest = builder.build();
-
-        ImagePipeline imagePipeline = Fresco.getImagePipeline();
-        DataSource<CloseableReference<CloseableImage>> dataSource = imagePipeline.fetchDecodedImage(imageRequest, null);
-        dataSource.subscribe(dataSubscriber, UiThreadImmediateExecutorService.getInstance());
     }
 
     private static Uri getResourceDrawableUri(Context context, String name) {
@@ -518,5 +527,4 @@ public class WeChatModule extends ReactContextBaseJavaModule implements IWXAPIEv
     private interface MediaObjectCallback {
         void invoke(@Nullable WXMediaMessage.IMediaObject mediaObject);
     }
-
 }
